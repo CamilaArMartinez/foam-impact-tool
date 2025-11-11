@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Foam Impact Design Calculator — Polyethylene & XLPE</title>
+  <title>Foam Impact Design Calculator — PE & XLPE</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
@@ -15,7 +15,7 @@
       --muted: #9ea6ba;
       --border: #272c3c;
       --radius: 10px;
-      --font: system-ui, -apple-system, BlinkMacSystemFont, -sans-serif;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
       --highlight-bg: #fff7b3;
       --highlight-text: #202000;
     }
@@ -43,6 +43,7 @@
       color: var(--muted);
       margin-bottom: 10px;
       max-width: 760px;
+      line-height: 1.4;
     }
 
     .card {
@@ -111,7 +112,7 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 10px;
-      min-width: 900px;
+      min-width: 960px;
     }
 
     thead {
@@ -189,7 +190,7 @@
     }
 
     select {
-      width: 120px;
+      width: 150px;
       background: #050814;
     }
 
@@ -226,9 +227,11 @@
 
   <h1>Foam Impact Design Calculator</h1>
   <div class="subtitle">
-    Web tool for this project: the textbook’s iterative impact method is implemented as code and parameterized using
-    Polyethylene and Cross-linked Polyethylene foam data (Foam Factory technical sheets).
-    The two yellow columns on the right are the key results: optimum foam thickness and optimum relative density.
+    This tool encodes the iterative impact design method from the example into a simple interface.
+    Inputs use your chosen maximum allowable impact force
+    <b>F<sub>max</sub></b> (on the payload), and foam options are based on Polyethylene and Cross-linked
+    Polyethylene sheets (Foam Factory data). The yellow columns on the right give the optimum foam thickness
+    and relative density.
   </div>
 
   <div class="card">
@@ -238,7 +241,7 @@
       <button id="compute-btn">⟳ Compute All</button>
       <button id="clear-btn" class="secondary">✕ Clear</button>
       <div class="hint">
-        Use either <b>h</b> or <b>v</b> (if both given, v is used). E<sub>s</sub> in MPa.
+        Use either <b>h</b> or <b>v</b> (if both are given, v is used). E<sub>s</sub> in MPa. F<sub>max</sub> in N.
       </div>
     </div>
 
@@ -257,12 +260,12 @@
             <th>A (m²)</th>
             <th>h (m)</th>
             <th>v (m/s)</th>
-            <th>a<sub>max</sub> (g)</th>
+            <th>F<sub>max</sub> (N)</th>
             <th>E<sub>s</sub> (MPa)</th>
             <th>Foam Type</th>
             <th>t init (m)</th>
 
-            <!-- Outputs -->
+            <!-- Outputs (intermediate) -->
             <th>v (m/s)</th>
             <th>U (J)</th>
             <th>F<sub>max</sub> (N)</th>
@@ -272,7 +275,7 @@
             <th>W/E<sub>s</sub></th>
             <th>W (J/m³)</th>
 
-            <!-- Key -->
+            <!-- Key results -->
             <th class="highlight">t opt (m)</th>
             <th class="highlight">ρ*/ρ<sub>s</sub></th>
           </tr>
@@ -287,41 +290,22 @@
   <script>
     const G_DEFAULT = 9.81;
 
-    // ------------------------------------------------------------------
-    // FOAM PROPERTY / MODEL SETUP (priority: Foam Factory PE / XLPE data)
-    // ------------------------------------------------------------------
-    //
-    // These parameters are calibrated qualitatively using typical values
-    // from Foam Factory sheets for Polyethylene Foam Sheet and
-    // Cross-linked Polyethylene Foam (densities, compressive strengths),
-    // then expressed in the Gibson–Ashby style normalized form.
-    //
-    // This keeps the model:
-    // - simple enough for this assignment,
-    // - traceable to specific product data,
-    //
+    // Foam models informed by typical PE / XLPE sheet data (Foam Factory etc.)
     const FOAM_MODELS = {
       "Polyethylene Foam Sheet": {
-        // Assumed solid PE density (kg/m³)
-        rho_s: 920,
-        // Reference normalized stress for scaling
-        sigma_ref: 1e-4,
-        // Reference W/E_s at sigma_ref (softer, lower energy than XLPE)
-        W_ref: 5.0e-5,
-        // Exponent on sigma_norm (typical polymer foam behavior)
-        n: 0.9,
-        // Baseline optimum relative density at W_ref
-        rho_ratio_0: 0.03,
+        rho_s: 920,        // kg/m^3 (solid PE reference)
+        sigma_ref: 1e-4,   // reference σ/E_s
+        W_ref: 5.0e-5,     // reference W/E_s at sigma_ref
+        n: 0.9,            // exponent for W/E_s vs σ/E_s
+        rho_ratio_0: 0.03, // baseline optimum ρ*/ρ_s
         rho_ratio_min: 0.01,
         rho_ratio_max: 0.10
       },
       "Cross-linked Polyethylene Foam (XLPE)": {
         rho_s: 920,
         sigma_ref: 1e-4,
-        // XLPE slightly higher energy absorption capacity
-        W_ref: 7.0e-5,
+        W_ref: 7.0e-5,     // slightly higher energy absorption
         n: 1.0,
-        // Optimum density tends to be a bit higher
         rho_ratio_0: 0.04,
         rho_ratio_min: 0.015,
         rho_ratio_max: 0.14
@@ -341,59 +325,48 @@
       return FOAM_MODELS[foamType] || FOAM_MODELS["DEFAULT"];
     }
 
-    // Normalized energy absorption model: W/E_s as function of sigma/E_s.
+    // W/E_s model based on normalized stress (Gibson–Ashby style)
     function getWOverE(sigmaNorm, strainRate, foamType) {
       const fm = getFoamModel(foamType);
-
       if (!isFinite(sigmaNorm) || sigmaNorm <= 0) {
         throw new Error("Non-physical σ/E_s value.");
       }
-
-      // For this assignment:
-      // - Strain-rate effects are not dominant; we keep it simple.
-      // - Model: W/E_s = W_ref * (sigmaNorm / sigma_ref)^n
       const ratio = sigmaNorm / fm.sigma_ref;
       const WoverE = fm.W_ref * Math.pow(ratio, fm.n);
-
       if (!isFinite(WoverE) || WoverE <= 0) {
-        throw new Error("W/E_s model produced non-physical value.");
+        throw new Error("Non-physical W/E_s from model.");
       }
       return WoverE;
     }
 
-    // Optimum density model: ρ*/ρ_s as function of W/E_s.
+    // Optimum density ratio model based on W/E_s
     function getOptDensityRatio(WoverE, foamType) {
       const fm = getFoamModel(foamType);
       if (!isFinite(WoverE) || WoverE <= 0) {
-        throw new Error("Non-physical W/E_s value.");
+        throw new Error("Non-physical W/E_s for density model.");
       }
-
-      // Scale around W_ref with mild sensitivity.
       let rhoRatio = fm.rho_ratio_0 * Math.pow(WoverE / fm.W_ref, 0.25);
       rhoRatio = Math.max(fm.rho_ratio_min, Math.min(rhoRatio, fm.rho_ratio_max));
-
       return rhoRatio;
     }
 
-    // ------------------------------------------------------
-    // CORE ITERATIVE SOLVER (same physics as example)
-    // ------------------------------------------------------
+    // Core iterative solver: uses Fmax input directly
     function solveThicknessIterative(params) {
       const {
-        m, A, h, vInput, aMaxG, Es_MPa,
+        m, A, h, vInput, FmaxInput, Es_MPa,
         foamType,
         tInit = 0.05,
         maxIter = 50,
         tol = 1e-6
       } = params;
 
-      if (!m || !A || !Es_MPa || !aMaxG) {
-        throw new Error("Missing required inputs: m, A, a_max_g, or E_s.");
+      if (!m || !A || !Es_MPa || !FmaxInput) {
+        throw new Error("Need m, A, E_s, and F_max (N) for each case.");
       }
 
       const Es = Es_MPa * 1e6;
 
-      // Impact velocity / effective height
+      // Velocity / effective height
       let v, hEff;
       if (vInput && vInput > 0) {
         v = vInput;
@@ -402,20 +375,19 @@
         hEff = h;
         v = Math.sqrt(2 * G_DEFAULT * hEff);
       } else {
-        throw new Error("Provide either drop height h or impact velocity v.");
+        throw new Error("Provide either h or v.");
       }
 
-      // Energy to absorb
-      const U = m * G_DEFAULT * hEff;
+      const U = m * G_DEFAULT * hEff; // energy to be absorbed
+      const Fmax = FmaxInput;         // from user
+      if (Fmax <= 0) throw new Error("F_max must be > 0.");
 
-      // Max allowable force and stress
-      const aMax = aMaxG * G_DEFAULT;
-      const Fmax = m * aMax;
+      const aMax = Fmax / m;          // for info only
       const sigmaP = Fmax / A;
       const sigmaNorm = sigmaP / Es;
-      if (sigmaNorm <= 0) throw new Error("Computed σ/E_s is non-positive.");
+      if (sigmaNorm <= 0) throw new Error("σ/E_s <= 0; check inputs.");
 
-      // Iteration on thickness
+      // Iterate on thickness t so that U = W * A * t
       let t = tInit > 0 ? tInit : 0.05;
 
       for (let i = 0; i < maxIter; i++) {
@@ -424,12 +396,12 @@
         const W = WoverE * Es;
 
         if (!isFinite(W) || W <= 0) {
-          throw new Error("Non-physical W from model; check inputs/model.");
+          throw new Error("Non-physical W from model; adjust inputs/model.");
         }
 
         const tNew = U / (W * A);
         if (!isFinite(tNew) || tNew <= 0) {
-          throw new Error("Non-physical t from iteration; check inputs.");
+          throw new Error("Iteration produced non-physical t; check inputs.");
         }
 
         if (Math.abs(tNew - t) < tol) {
@@ -439,7 +411,6 @@
         t = tNew;
       }
 
-      // Final values
       const strainRateFinal = v / t;
       const WoverEFinal = getWOverE(sigmaNorm, strainRateFinal, foamType);
       const WFinal = WoverEFinal * Es;
@@ -459,9 +430,8 @@
       };
     }
 
-    // -----------------------------
-    // TABLE / UI LOGIC
-    // -----------------------------
+    // ------------- UI / Table Logic -------------
+
     const tbody = document.getElementById("table-body");
     const statusMsg = document.getElementById("status-msg");
     const addRowBtn = document.getElementById("add-row-btn");
@@ -514,13 +484,13 @@
         return td;
       };
 
-      // Inputs
+      // Input cells
       tr.appendChild(mkInputCell("name", "Case"));
       tr.appendChild(mkInputCell("m_kg", ""));
       tr.appendChild(mkInputCell("A_m2", ""));
       tr.appendChild(mkInputCell("h_m", ""));
       tr.appendChild(mkInputCell("v_mps", ""));
-      tr.appendChild(mkInputCell("a_max_g", ""));
+      tr.appendChild(mkInputCell("Fmax_N", ""));
       tr.appendChild(mkInputCell("Es_MPa", ""));
       tr.appendChild(mkSelectFoamCell(defaults.foam_type || "Polyethylene Foam Sheet"));
       tr.appendChild(mkInputCell("t_init_m", "0.05"));
@@ -535,7 +505,7 @@
       tr.appendChild(mkOutputCell("WoverE", true));
       tr.appendChild(mkOutputCell("W_Jpm3", true));
 
-      // Key results (highlighted)
+      // Key outputs
       tr.appendChild(mkOutputCell("t_opt_m", false, true));
       tr.appendChild(mkOutputCell("rhoRatio", false, true));
 
@@ -563,7 +533,7 @@
         A: Number(getVal("A_m2")),
         h: getVal("h_m") !== null ? Number(getVal("h_m")) : null,
         vInput: getVal("v_mps") !== null ? Number(getVal("v_mps")) : null,
-        aMaxG: Number(getVal("a_max_g")),
+        FmaxInput: getVal("Fmax_N") !== null ? Number(getVal("Fmax_N")) : null,
         Es_MPa: Number(getVal("Es_MPa")),
         foamType: getFoamType(),
         tInit: getVal("t_init_m") !== null ? Number(getVal("t_init_m")) : 0.05
@@ -611,9 +581,6 @@
       const cells = tr.querySelectorAll("td.output");
       cells.forEach(td => {
         td.classList.remove("error");
-        if (!td.classList.contains("highlight")) {
-          td.classList.remove("dim");
-        }
         td.textContent = "";
       });
       tr.removeAttribute("title");
@@ -623,12 +590,15 @@
       let ok = 0;
       let err = 0;
       const rows = tbody.querySelectorAll("tr");
+
       rows.forEach(tr => {
         clearOutputs(tr);
         const p = parseRow(tr);
 
-        // Skip empty rows
-        if (!p.m && !p.A && !p.h && !p.vInput && !p.Es_MPa && !p.aMaxG) return;
+        // skip fully empty
+        if (!p.m && !p.A && !p.h && !p.vInput && !p.FmaxInput && !p.Es_MPa) {
+          return;
+        }
 
         try {
           const res = solveThicknessIterative({
@@ -636,7 +606,7 @@
             A: p.A,
             h: p.h,
             vInput: p.vInput,
-            aMaxG: p.aMaxG,
+            FmaxInput: p.FmaxInput,
             Es_MPa: p.Es_MPa,
             foamType: p.foamType,
             tInit: p.tInit
@@ -655,7 +625,7 @@
         statusMsg.innerHTML = `<strong>${ok}</strong> case(s) computed successfully.`;
       } else {
         statusMsg.innerHTML =
-          `<strong>${ok}</strong> case(s) ok, <strong>${err}</strong> with issues (hover “err” cells for details).`;
+          `<strong>${ok}</strong> case(s) ok, <strong>${err}</strong> with input/model issues (hover “err” cells).`;
       }
     }
 
@@ -667,12 +637,12 @@
     function loadExample() {
       clearAll();
       createRow({
-        name: "Example_1_PE",
+        name: "Example_case",
         m_kg: 0.5,
         A_m2: 0.01,
         h_m: 1.0,
-        a_max_g: 10,
-        Es_MPa: 30, // example solid modulus for PE foam basis (MPa)
+        Fmax_N: 50,       // e.g. from 10 g limit: 0.5 kg * 10 * 9.81 ≈ 49 N
+        Es_MPa: 30,       // choose based on your assumed solid modulus basis
         foam_type: "Polyethylene Foam Sheet",
         t_init_m: 0.05
       });
@@ -688,9 +658,9 @@
     computeBtn.addEventListener("click", computeAll);
     clearBtn.addEventListener("click", clearAll);
 
-    // Start with one blank row
+    // start with one blank row
     createRow({});
-    statusMsg.textContent = "Enter your inputs, then click Compute All.";
+    statusMsg.textContent = "Enter your inputs (m, A, h or v, Fmax, E_s, foam type), then click Compute All.";
   </script>
 </body>
 </html>
