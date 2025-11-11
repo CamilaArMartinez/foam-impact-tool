@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Foam Impact Design Calculator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #141a2a;
+      --accent: #4fc3f7;
+      --accent-soft: rgba(79,195,247,0.18);
+      --text: #f5f5f5;
+      --muted: #9ea6ba;
+      --border: #2a3042;
+      --radius: 14px;
+      --font: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: var(--font);
+      background: radial-gradient(circle at top, #151c32 0, #050814 55%, #020308 100%);
+      color: var(--text);
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--accent);
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      max-width: 720px;
+      line-height: 1.4;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      padding: 14px 14px 12px;
+      box-shadow: 0 8px 22px rgba(0,0,0,0.55);
+      backdrop-filter: blur(10px);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+      align-items: center;
+    }
+
+    button {
+      border: 1px solid var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.18s ease;
+    }
+
+    button span.icon {
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    button:hover {
+      background: var(--accent);
+      color: #020308;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(79,195,247,0.25);
+    }
+
+    button.secondary {
+      border-color: var(--border);
+      background: transparent;
+      color: var(--muted);
+    }
+
+    button.secondary:hover {
+      background: rgba(255,255,255,0.03);
+      color: var(--accent);
+      box-shadow: none;
+    }
+
+    .hint {
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin-top: 4px;
+    }
+
+    thead {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: linear-gradient(to bottom, #161c30, #101620);
+    }
+
+    th, td {
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      padding: 4px 6px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th {
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    th.group-label {
+      text-align: center;
+      font-size: 9px;
+      color: var(--accent);
+      background: rgba(79,195,247,0.04);
+    }
+
+    td:first-child, th:first-child {
+      position: sticky;
+      left: 0;
+      background: #151a26;
+      z-index: 1;
+      text-align: left;
+      font-weight: 500;
+    }
+
+    input {
+      width: 70px;
+      padding: 2px 4px;
+      font-size: 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(3,6,14,0.96);
+      color: var(--text);
+      outline: none;
+      transition: all 0.12s ease;
+    }
+
+    input::placeholder {
+      color: #5d6578;
+    }
+
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(79,195,247,0.25);
+      background: #020308;
+    }
+
+    td.output {
+      font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+      font-size: 9px;
+      color: #cdd5ff;
+    }
+
+    td.output.dim {
+      color: #6d738a;
+    }
+
+    td.error {
+      color: #ff6b81;
+    }
+
+    .status {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+      min-height: 14px;
+    }
+
+    .status strong {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    @media (max-width: 800px) {
+      body {
+        padding: 14px;
+      }
+      h1 {
+        font-size: 20px;
+      }
+      .subtitle {
+        font-size: 11px;
+      }
+      table {
+        font-size: 9px;
+      }
+      input {
+        width: 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Foam Impact Design Calculator</h1>
+  <div class="subtitle">
+    Compare different foam materials and impact conditions. Enter values row-by-row, then hit <b>Compute All</b>.
+    Uses an iterative method (U = mgh or ½mv², σ<sub>p</sub> = F/A, σ/E<sub>s</sub>, W/E<sub>s</sub>, etc.).
+    You can edit the internal foam models later to match your charts.
+  </div>
+
+  <div class="card">
+    <div class="controls">
+      <button id="add-row-btn"><span class="icon">＋</span>Add Row</button>
+      <button id="example-row-btn" class="secondary"><span class="icon">★</span>Load Example 1</button>
+      <button id="compute-btn"><span class="icon">⟳</span>Compute All</button>
+      <button id="clear-btn" class="secondary"><span class="icon">✕</span>Clear All</button>
+      <div class="hint">
+        Inputs: use either <b>h</b> or <b>v</b> (if both given, v is used). E<sub>s</sub> in MPa.
+      </div>
+    </div>
+
+    <div style="overflow:auto; max-height:70vh; border-radius:10px; border:1px solid rgba(255,255,255,0.04);">
+      <table id="foam-table">
+        <thead>
+          <tr>
+            <th rowspan="2">Case</th>
+            <th colspan="7" class="group-label">INPUTS</th>
+            <th colspan="10" class="group-label">OUTPUTS</th>
+          </tr>
+          <tr>
+            <th>m (kg)</th>
+            <th>A (m²)</th>
+            <th>h (m)</th>
+            <th>v (m/s)</th>
+            <th>a<sub>max</sub> (g)</th>
+            <th>E<sub>s</sub> (MPa)</th>
+            <th>Foam Type</th>
+
+            <th>t init (m)</th>
+            <th>v (m/s)</th>
+            <th>U (J)</th>
+            <th>F<sub>max</sub> (N)</th>
+            <th>σ<sub>p</sub> (Pa)</th>
+            <th>σ/E<sub>s</sub></th>
+            <th>t opt (m)</th>
+            <th>ε̇ (1/s)</th>
+            <th>W/E<sub>s</sub></th>
+            <th>W (J/m³)</th>
+            <th>ρ*/ρ<sub>s</sub></th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+        </tbody>
+      </table>
+    </div>
+
+    <div class="status" id="status-msg"></div>
+  </div>
+
+  <script>
+    // -----------------------------
+    // CONFIGURABLE FOAM MODELS
+    // -----------------------------
+
+    const G_DEFAULT = 9.81;
+
+    function getWOverE(sigmaNorm, strainRate, foamType = "flexible_polyurethane") {
+      // USER: Replace this with your own W/E_s vs sigma_norm, strain-rate data.
+      if (sigmaNorm <= 0 || strainRate <= 0 || !isFinite(sigmaNorm) || !isFinite(strainRate)) {
+        throw new Error("Invalid sigma/E_s or strain-rate.");
+      }
+
+      // Placeholder calibrated to roughly match example behavior.
+      const sigmaRef = 1e-4;
+      const erateRef = 30.0;
+      const WoverEref = 6.7e-5;
+      const alpha = 0.9;
+      const beta = 0.15;
+
+      const factorSigma = Math.pow(sigmaNorm / sigmaRef, alpha);
+      const factorErate = Math.pow(Math.log10(strainRate) / Math.log10(erateRef), beta);
+
+      return WoverEref * factorSigma * factorErate;
+    }
+
+    function getOptDensityRatio(WoverE, foamType = "flexible_polyurethane") {
+      // USER: Replace with mapping from your optimum density chart.
+      if (WoverE <= 0 || !isFinite(WoverE)) {
+        throw new Error("Invalid W/E_s.");
+      }
+      let rhoRatio = 0.01 * Math.pow(WoverE / 7e-5, 0.25);
+      rhoRatio = Math.max(0.002, Math.min(rhoRatio, 0.2));
+      return rhoRatio;
+    }
+
+    // -----------------------------
+    // CORE CALCULATION
+    // -----------------------------
+
+    function solveThicknessIterative(params) {
+      const {
+        m,
+        A,
+        h,
+        vInput,
+        aMaxG,
+        Es_MPa,
+        tInit = 0.05,
+        maxIter = 50,
+        tol = 1e-6
+      } = params;
+
+      if (!m || !A || !Es_MPa || !aMaxG) {
+        throw new Error("Missing required inputs (m, A, a_max_g, E_s_MPa).");
+      }
+
+      const Es = Es_MPa * 1e6;
+
+      let v, hEff;
+      if (vInput && vInput > 0) {
+        v = vInput;
+        hEff = v * v / (2 * G_DEFAULT);
+      } else if (h && h > 0) {
+        hEff = h;
+        v = Math.sqrt(2 * G_DEFAULT * hEff);
+      } else {
+        throw new Error("Provide either drop height h or impact velocity v.");
+      }
+
+      const U = m * G_DEFAULT * hEff;
+
+      const aMax = aMaxG * G_DEFAULT;
+      const Fmax = m * aMax;
+      const sigmaP = Fmax / A;
+      const sigmaNorm = sigmaP / Es;
+
+      if (sigmaNorm <= 0) {
+        throw new Error("Computed sigma/E_s is non-positive.");
+      }
+
+      let t = tInit > 0 ? tInit : 0.05;
+
+      for (let i = 0; i < maxIter; i++) {
+        const strainRate = v / t;
+        const WoverE = getWOverE(sigmaNorm, strainRate);
+        const W = WoverE * Es;
+
+        if (W <= 0 || !isFinite(W)) {
+          throw new Error("W/E_s model returned non-physical value. Adjust getWOverE().");
+        }
+
+        const tNew = U / (W * A);
+
+        if (!isFinite(tNew) || tNew <= 0) {
+          throw new Error("Iteration produced invalid thickness. Check inputs/models.");
+        }
+
+        if (Math.abs(tNew - t) < tol) {
+          t = tNew;
+          break;
+        }
+
+        t = tNew;
+      }
+
+      const strainRateFinal = v / t;
+      const WoverEFinal = getWOverE(sigmaNorm, strainRateFinal);
+      const WFinal = WoverEFinal * Es;
+      const rhoRatio = getOptDensityRatio(WoverEFinal);
+
+      return {
+        h_m: hEff,
+        v_mps: v,
+        U_J: U,
+        Fmax_N: Fmax,
+        sigmaP_Pa: sigmaP,
+        sigmaNorm: sigmaNorm,
+        t_opt_m: t,
+        strainRate_1ps: strainRateFinal,
+        WoverE: WoverEFinal,
+        W_Jpm3: WFinal,
+        rhoRatio: rhoRatio
+      };
+    }
+
+    // -----------------------------
+    // TABLE UI HANDLING
+    // -----------------------------
+
+    const tbody = document.getElementById("table-body");
+    const statusMsg = document.getElementById("status-msg");
+    const addRowBtn = document.getElementById("add-row-btn");
+    const exampleBtn = document.getElementById("example-row-btn");
+    const computeBtn = document.getElementById("compute-btn");
+    const clearBtn = document.getElementById("clear-btn");
+
+    function createRow(defaults = {}) {
+      const tr = document.createElement("tr");
+
+      const mkInputCell = (key, placeholder = "", align = "right") => {
+        const td = document.createElement("td");
+        if (key === "name") {
+          td.style.textAlign = "left";
+        } else {
+          td.style.textAlign = align;
+        }
+        const input = document.createElement("input");
+        input.type = "text";
+        input.dataset.key = key;
+        if (placeholder) input.placeholder = placeholder;
+        if (defaults[key] !== undefined) {
+          input.value = defaults[key];
+        }
+        td.appendChild(input);
+        return td;
+      };
+
+      const mkOutputCell = (key, dim = false) => {
+        const td = document.createElement("td");
+        td.className = "output" + (dim ? " dim" : "");
+        td.dataset.outKey = key;
+        td.textContent = "";
+        return td;
+      };
+
+      // Inputs
+      tr.appendChild(mkInputCell("name", "case"));
+      tr.appendChild(mkInputCell("m_kg", "kg"));
+      tr.appendChild(mkInputCell("A_m2", "m²"));
+      tr.appendChild(mkInputCell("h_m", "h"));
+      tr.appendChild(mkInputCell("v_mps", "v"));
+      tr.appendChild(mkInputCell("a_max_g", "g"));
+      tr.appendChild(mkInputCell("Es_MPa", "MPa"));
+      tr.appendChild(mkInputCell("foam_type", "PU / etc"));
+      tr.appendChild(mkInputCell("t_init_m", "0.05"));
+
+      // Outputs
+      tr.appendChild(mkOutputCell("v_mps"));
+      tr.appendChild(mkOutputCell("U_J", true));
+      tr.appendChild(mkOutputCell("Fmax_N", true));
+      tr.appendChild(mkOutputCell("sigmaP_Pa", true));
+      tr.appendChild(mkOutputCell("sigmaNorm", true));
+      tr.appendChild(mkOutputCell("t_opt_m"));
+      tr.appendChild(mkOutputCell("strainRate_1ps", true));
+      tr.appendChild(mkOutputCell("WoverE", true));
+      tr.appendChild(mkOutputCell("W_Jpm3", true));
+      tr.appendChild(mkOutputCell("rhoRatio"));
+
+      tbody.appendChild(tr);
+    }
+
+    function parseRow(tr) {
+      const getVal = (key) => {
+        const input = tr.querySelector(`input[data-key="${key}"]`);
+        if (!input) return null;
+        const raw = input.value.trim();
+        if (raw === "") return null;
+        const num = Number(raw);
+        return isNaN(num) ? raw : num;
+      };
+
+      return {
+        name: (() => {
+          const v = getVal("name");
+          return (typeof v === "string" && v.length) ? v : "";
+        })(),
+        m: Number(getVal("m_kg")),
+        A: Number(getVal("A_m2")),
+        h: getVal("h_m") !== null ? Number(getVal("h_m")) : null,
+        vInput: getVal("v_mps") !== null ? Number(getVal("v_mps")) : null,
+        aMaxG: Number(getVal("a_max_g")),
+        Es_MPa: Number(getVal("Es_MPa")),
+        foamType: (() => {
+          const v = getVal("foam_type");
+          return (typeof v === "string" && v.length) ? v : "flexible_polyurethane";
+        })(),
+        tInit: getVal("t_init_m") !== null ? Number(getVal("t_init_m")) : 0.05
+      };
+    }
+
+    function writeOutputs(tr, outputs) {
+      const set = (key, value, decimals = 4) => {
+        const td = tr.querySelector(`td[data-out-key="${key}"]`);
+        if (!td) return;
+        if (value === null || value === undefined || !isFinite(value)) {
+          td.textContent = "";
+          return;
+        }
+        const mag = Math.abs(value);
+        if (mag !== 0 && (mag < 1e-3 || mag > 1e5)) {
+          td.textContent = value.toExponential(3);
+        } else {
+          td.textContent = Number(value.toFixed(decimals));
+        }
+      };
+
+      set("v_mps", outputs.v_mps, 3);
+      set("U_J", outputs.U_J, 3);
+      set("Fmax_N", outputs.Fmax_N, 3);
+      set("sigmaP_Pa", outputs.sigmaP_Pa, 2);
+      set("sigmaNorm", outputs.sigmaNorm, 6);
+      set("t_opt_m", outputs.t_opt_m, 4);
+      set("strainRate_1ps", outputs.strainRate_1ps, 2);
+      set("WoverE", outputs.WoverE, 6);
+      set("W_Jpm3", outputs.W_Jpm3, 1);
+      set("rhoRatio", outputs.rhoRatio, 4);
+    }
+
+    function markError(tr, msg) {
+      const cells = tr.querySelectorAll("td.output");
+      cells.forEach(td => {
+        td.classList.add("error");
+        td.textContent = "err";
+      });
+      tr.title = msg;
+    }
+
+    function clearOutputs(tr) {
+      const cells = tr.querySelectorAll("td.output");
+      cells.forEach(td => {
+        td.classList.remove("error");
+        td.textContent = "";
+      });
+      tr.removeAttribute("title");
+    }
+
+    function computeAll() {
+      let okCount = 0;
+      let errCount = 0;
+
+      const rows = tbody.querySelectorAll("tr");
+      rows.forEach((tr, idx) => {
+        clearOutputs(tr);
+        try {
+          const p = parseRow(tr);
+
+          // Skip completely empty rows
+          if (!p.m && !p.A && !p.h && !p.vInput && !p.Es_MPa && !p.aMaxG) {
+            return;
+          }
+
+          const res = solveThicknessIterative({
+            m: p.m,
+            A: p.A,
+            h: p.h,
+            vInput: p.vInput,
+            aMaxG: p.aMaxG,
+            Es_MPa: p.Es_MPa,
+            tInit: p.tInit
+          });
+
+          writeOutputs(tr, res);
+          okCount++;
+        } catch (e) {
+          errCount++;
+          markError(tr, e.message || "Invalid inputs");
+        }
+      });
+
+      if (okCount === 0 && errCount === 0) {
+        statusMsg.innerHTML = "Add a row and enter inputs to start.";
+      } else if (errCount === 0) {
+        statusMsg.innerHTML = `<strong>${okCount}</strong> case(s) computed successfully.`;
+      } else {
+        statusMsg.innerHTML = `<strong>${okCount}</strong> case(s) ok, <strong>${errCount}</strong> with input/model issues (hover "err" cells).`;
+      }
+    }
+
+    function clearAll() {
+      tbody.innerHTML = "";
+      statusMsg.textContent = "Cleared. Add a new row or load the example.";
+    }
+
+    function loadExampleRow() {
+      clearAll();
+      createRow({
+        name: "Example_1",
+        m_kg: 0.5,
+        A_m2: 0.01,
+        h_m: 1.0,
+        v_mps: "",
+        a_max_g: 10,
+        Es_MPa: 50,
+        foam_type: "flexible_polyurethane",
+        t_init_m: 0.05
+      });
+      statusMsg.textContent = "Loaded Example 1 inputs. Now click Compute All.";
+    }
+
+    // Hook up buttons
+    addRowBtn.addEventListener("click", () => {
+      createRow({});
+      statusMsg.textContent = "New row added.";
+    });
+
+    exampleBtn.addEventListener("click", loadExampleRow);
+    computeBtn.addEventListener("click", computeAll);
+    clearBtn.addEventListener("click", clearAll);
+
+    // Start with one empty row
+    createRow({});
+    statusMsg.textContent = "Enter your first case, then click Compute All.";
+  </script>
+</body>
+</html>
