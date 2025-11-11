@@ -1,8 +1,9 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Foam Impact Design Calculator — PE & XLPE</title>
+  <title>Foam Impact Design Calculator — PE & XLPE with Density</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
   <style>
@@ -112,7 +113,7 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 10px;
-      min-width: 960px;
+      min-width: 1040px;
     }
 
     thead {
@@ -227,11 +228,9 @@
 
   <h1>Foam Impact Design Calculator</h1>
   <div class="subtitle">
-    This tool encodes the iterative impact design method from the example into a simple interface.
-    Inputs use your chosen maximum allowable impact force
-    <b>F<sub>max</sub></b> (on the payload), and foam options are based on Polyethylene and Cross-linked
-    Polyethylene sheets (Foam Factory data). The yellow columns on the right give the optimum foam thickness
-    and relative density.
+    Iterative impact design from the example implemented as a web tool.
+    You can now specify the actual foam density ρ* (kg/m³) for each case to see how the required thickness changes
+    for different PE / XLPE grades. The yellow columns on the right show the optimum foam thickness and ρ*/ρ<sub>s</sub>.
   </div>
 
   <div class="card">
@@ -241,7 +240,10 @@
       <button id="compute-btn">⟳ Compute All</button>
       <button id="clear-btn" class="secondary">✕ Clear</button>
       <div class="hint">
-        Use either <b>h</b> or <b>v</b> (if both are given, v is used). E<sub>s</sub> in MPa. F<sub>max</sub> in N.
+        Use either <b>h</b> or <b>v</b> (if both are given, v is used).
+        F<sub>max</sub> is the allowable impact force on the payload (N).
+        E<sub>s</sub> is the solid polymer modulus basis (MPa).
+        ρ* is the chosen foam density (kg/m³).
       </div>
     </div>
 
@@ -250,7 +252,7 @@
         <thead>
           <tr>
             <th rowspan="2">Case</th>
-            <th colspan="8" class="group-label">INPUTS</th>
+            <th colspan="9" class="group-label">INPUTS</th>
             <th colspan="8" class="group-label">OUTPUTS (intermediate)</th>
             <th colspan="2" class="group-label">KEY RESULTS</th>
           </tr>
@@ -263,6 +265,7 @@
             <th>F<sub>max</sub> (N)</th>
             <th>E<sub>s</sub> (MPa)</th>
             <th>Foam Type</th>
+            <th>ρ* (kg/m³)</th>
             <th>t init (m)</th>
 
             <!-- Outputs (intermediate) -->
@@ -270,9 +273,9 @@
             <th>U (J)</th>
             <th>F<sub>max</sub> (N)</th>
             <th>σ<sub>p</sub> (Pa)</th>
-            <th>σ/E<sub>s</sub></th>
+            <th>σ/E<sub>s,eff</sub></th>
             <th>ε̇ (1/s)</th>
-            <th>W/E<sub>s</sub></th>
+            <th>W/E<sub>s,eff</sub></th>
             <th>W (J/m³)</th>
 
             <!-- Key results -->
@@ -290,23 +293,21 @@
   <script>
     const G_DEFAULT = 9.81;
 
-    // Foam models informed by typical PE / XLPE sheet data (Foam Factory etc.)
+    // Foam models (ρ_s etc.) based on typical PE/XLPE foam info.
     const FOAM_MODELS = {
       "Polyethylene Foam Sheet": {
-        rho_s: 920,        // kg/m^3 (solid PE reference)
-        sigma_ref: 1e-4,   // reference σ/E_s
-        W_ref: 5.0e-5,     // reference W/E_s at sigma_ref
-        n: 0.9,            // exponent for W/E_s vs σ/E_s
-        rho_ratio_0: 0.03, // baseline optimum ρ*/ρ_s
+        rho_s: 920,        // kg/m^3 base polymer
+        sigma_ref: 1e-4,
+        W_ref: 5.0e-5,
+        n: 0.9,
         rho_ratio_min: 0.01,
         rho_ratio_max: 0.10
       },
       "Cross-linked Polyethylene Foam (XLPE)": {
         rho_s: 920,
         sigma_ref: 1e-4,
-        W_ref: 7.0e-5,     // slightly higher energy absorption
+        W_ref: 7.0e-5,
         n: 1.0,
-        rho_ratio_0: 0.04,
         rho_ratio_min: 0.015,
         rho_ratio_max: 0.14
       },
@@ -315,7 +316,6 @@
         sigma_ref: 1e-4,
         W_ref: 6.0e-5,
         n: 0.95,
-        rho_ratio_0: 0.035,
         rho_ratio_min: 0.01,
         rho_ratio_max: 0.12
       }
@@ -325,48 +325,65 @@
       return FOAM_MODELS[foamType] || FOAM_MODELS["DEFAULT"];
     }
 
-    // W/E_s model based on normalized stress (Gibson–Ashby style)
-    function getWOverE(sigmaNorm, strainRate, foamType) {
+    // W/E_s,eff as a function of sigma/E_s,eff for given foam family
+    function getWOverE(sigmaNorm, foamType) {
       const fm = getFoamModel(foamType);
       if (!isFinite(sigmaNorm) || sigmaNorm <= 0) {
-        throw new Error("Non-physical σ/E_s value.");
+        throw new Error("Non-physical σ/E_s,eff value.");
       }
       const ratio = sigmaNorm / fm.sigma_ref;
       const WoverE = fm.W_ref * Math.pow(ratio, fm.n);
       if (!isFinite(WoverE) || WoverE <= 0) {
-        throw new Error("Non-physical W/E_s from model.");
+        throw new Error("Non-physical W/E_s,eff from model.");
       }
       return WoverE;
     }
 
-    // Optimum density ratio model based on W/E_s
-    function getOptDensityRatio(WoverE, foamType) {
+    // If user provides rho*, compute rho*/rho_s; if not, we back it out from W/E_s,eff.
+    function getDensityRatioFromInputOrModel(rhoStar_kgm3, foamType, WoverE) {
       const fm = getFoamModel(foamType);
-      if (!isFinite(WoverE) || WoverE <= 0) {
-        throw new Error("Non-physical W/E_s for density model.");
+
+      if (rhoStar_kgm3 && rhoStar_kgm3 > 0) {
+        const rhoRatio = rhoStar_kgm3 / fm.rho_s;
+        if (rhoRatio > 0) return rhoRatio;
       }
-      let rhoRatio = fm.rho_ratio_0 * Math.pow(WoverE / fm.W_ref, 0.25);
+
+      // If no rho* given, infer a plausible optimum (mild function of WoverE)
+      let rhoRatio = 0.035 * Math.pow(WoverE / fm.W_ref, 0.25);
       rhoRatio = Math.max(fm.rho_ratio_min, Math.min(rhoRatio, fm.rho_ratio_max));
       return rhoRatio;
     }
 
-    // Core iterative solver: uses Fmax input directly
+    // Core iterative solver
     function solveThicknessIterative(params) {
       const {
         m, A, h, vInput, FmaxInput, Es_MPa,
-        foamType,
+        foamType, rhoStar_kgm3,
         tInit = 0.05,
         maxIter = 50,
         tol = 1e-6
       } = params;
 
       if (!m || !A || !Es_MPa || !FmaxInput) {
-        throw new Error("Need m, A, E_s, and F_max (N) for each case.");
+        throw new Error("Need m, A, E_s (MPa), and F_max (N) for each case.");
       }
 
-      const Es = Es_MPa * 1e6;
+      const fm = getFoamModel(foamType);
 
-      // Velocity / effective height
+      const Es_solid = Es_MPa * 1e6; // solid/reference modulus
+      let Es_eff = Es_solid;
+
+      // If foam density known, adjust effective modulus via Gibson–Ashby:
+      // E* ≈ E_solid * (ρ*/ρ_s)^2
+      let rhoRatio_input = null;
+      if (rhoStar_kgm3 && rhoStar_kgm3 > 0) {
+        rhoRatio_input = rhoStar_kgm3 / fm.rho_s;
+        if (rhoRatio_input > 0) {
+          Es_eff = Es_solid * rhoRatio_input * rhoRatio_input;
+        }
+      }
+
+      // Determine impact velocity & effective drop height
       let v, hEff;
       if (vInput && vInput > 0) {
         v = vInput;
@@ -375,33 +392,36 @@
         hEff = h;
         v = Math.sqrt(2 * G_DEFAULT * hEff);
       } else {
-        throw new Error("Provide either h or v.");
+        throw new Error("Provide either h or v (or both).");
       }
 
-      const U = m * G_DEFAULT * hEff; // energy to be absorbed
-      const Fmax = FmaxInput;         // from user
-      if (Fmax <= 0) throw new Error("F_max must be > 0.");
+      const U = m * G_DEFAULT * hEff;    // energy to absorb
+      const Fmax = FmaxInput;
+      if (!isFinite(Fmax) || Fmax <= 0) {
+        throw new Error("F_max must be > 0.");
+      }
 
-      const aMax = Fmax / m;          // for info only
       const sigmaP = Fmax / A;
-      const sigmaNorm = sigmaP / Es;
-      if (sigmaNorm <= 0) throw new Error("σ/E_s <= 0; check inputs.");
+      const sigmaNorm = sigmaP / Es_eff;
+      if (!isFinite(sigmaNorm) || sigmaNorm <= 0) {
+        throw new Error("σ/E_s,eff <= 0; check inputs.");
+      }
 
-      // Iterate on thickness t so that U = W * A * t
+      // Iteration on thickness
       let t = tInit > 0 ? tInit : 0.05;
 
       for (let i = 0; i < maxIter; i++) {
         const strainRate = v / t;
-        const WoverE = getWOverE(sigmaNorm, strainRate, foamType);
-        const W = WoverE * Es;
+        const WoverE = getWOverE(sigmaNorm, foamType);
+        const W = WoverE * Es_eff;
 
         if (!isFinite(W) || W <= 0) {
-          throw new Error("Non-physical W from model; adjust inputs/model.");
+          throw new Error("Non-physical W from model; adjust inputs or model.");
         }
 
         const tNew = U / (W * A);
         if (!isFinite(tNew) || tNew <= 0) {
-          throw new Error("Iteration produced non-physical t; check inputs.");
+          throw new Error("Iteration produced non-physical thickness.");
         }
 
         if (Math.abs(tNew - t) < tol) {
@@ -412,9 +432,15 @@
       }
 
       const strainRateFinal = v / t;
-      const WoverEFinal = getWOverE(sigmaNorm, strainRateFinal, foamType);
-      const WFinal = WoverEFinal * Es;
-      const rhoRatio = getOptDensityRatio(WoverEFinal, foamType);
+      const WoverEFinal = getWOverE(sigmaNorm, foamType);
+      const WFinal = WoverEFinal * Es_eff;
+
+      // Final density ratio:
+      const rhoRatioFinal = getDensityRatioFromInputOrModel(
+        rhoStar_kgm3,
+        foamType,
+        WoverEFinal
+      );
 
       return {
         v_mps: v,
@@ -426,7 +452,7 @@
         WoverE: WoverEFinal,
         W_Jpm3: WFinal,
         t_opt_m: t,
-        rhoRatio: rhoRatio
+        rhoRatio: rhoRatioFinal
       };
     }
 
@@ -484,7 +510,7 @@
         return td;
       };
 
-      // Input cells
+      // Inputs
       tr.appendChild(mkInputCell("name", "Case"));
       tr.appendChild(mkInputCell("m_kg", ""));
       tr.appendChild(mkInputCell("A_m2", ""));
@@ -493,6 +519,7 @@
       tr.appendChild(mkInputCell("Fmax_N", ""));
       tr.appendChild(mkInputCell("Es_MPa", ""));
       tr.appendChild(mkSelectFoamCell(defaults.foam_type || "Polyethylene Foam Sheet"));
+      tr.appendChild(mkInputCell("rhoStar_kgm3", ""));
       tr.appendChild(mkInputCell("t_init_m", "0.05"));
 
       // Outputs (intermediate)
@@ -505,7 +532,7 @@
       tr.appendChild(mkOutputCell("WoverE", true));
       tr.appendChild(mkOutputCell("W_Jpm3", true));
 
-      // Key outputs
+      // Key results
       tr.appendChild(mkOutputCell("t_opt_m", false, true));
       tr.appendChild(mkOutputCell("rhoRatio", false, true));
 
@@ -536,6 +563,7 @@
         FmaxInput: getVal("Fmax_N") !== null ? Number(getVal("Fmax_N")) : null,
         Es_MPa: Number(getVal("Es_MPa")),
         foamType: getFoamType(),
+        rhoStar_kgm3: getVal("rhoStar_kgm3") !== null ? Number(getVal("rhoStar_kgm3")) : null,
         tInit: getVal("t_init_m") !== null ? Number(getVal("t_init_m")) : 0.05
       };
     }
@@ -595,22 +623,13 @@
         clearOutputs(tr);
         const p = parseRow(tr);
 
-        // skip fully empty
-        if (!p.m && !p.A && !p.h && !p.vInput && !p.FmaxInput && !p.Es_MPa) {
+        // skip fully empty rows
+        if (!p.m && !p.A && !p.h && !p.vInput && !p.FmaxInput && !p.Es_MPa && !p.rhoStar_kgm3) {
           return;
         }
 
         try {
-          const res = solveThicknessIterative({
-            m: p.m,
-            A: p.A,
-            h: p.h,
-            vInput: p.vInput,
-            FmaxInput: p.FmaxInput,
-            Es_MPa: p.Es_MPa,
-            foamType: p.foamType,
-            tInit: p.tInit
-          });
+          const res = solveThicknessIterative(p);
           writeOutputs(tr, res);
           ok++;
         } catch (e) {
@@ -637,13 +656,14 @@
     function loadExample() {
       clearAll();
       createRow({
-        name: "Example_case",
+        name: "Example_PE_1m",
         m_kg: 0.5,
         A_m2: 0.01,
         h_m: 1.0,
-        Fmax_N: 50,       // e.g. from 10 g limit: 0.5 kg * 10 * 9.81 ≈ 49 N
-        Es_MPa: 30,       // choose based on your assumed solid modulus basis
+        Fmax_N: 50,          // e.g. 10 g limit for 0.5 kg ~ 49 N
+        Es_MPa: 1000,        // example solid PE basis (tune as needed)
         foam_type: "Polyethylene Foam Sheet",
+        rhoStar_kgm3: 33,    // e.g. one PE grade
         t_init_m: 0.05
       });
       statusMsg.textContent = "Example loaded. Click Compute All to solve.";
@@ -660,9 +680,8 @@
 
     // start with one blank row
     createRow({});
-    statusMsg.textContent = "Enter your inputs (m, A, h or v, Fmax, E_s, foam type), then click Compute All.";
+    statusMsg.textContent = "Enter your inputs, then click Compute All.";
   </script>
 </body>
 </html>
-
 
