@@ -196,6 +196,19 @@
       font-weight: 500;
     }
 
+    /* Highlight key outputs */
+    td.output.highlight {
+      background: #fff7b3;
+      color: #202000;
+      font-weight: 600;
+    }
+
+    th.highlight {
+      background: #fff7b3;
+      color: #202000 !important;
+      font-weight: 700;
+    }
+
     @media (max-width: 800px) {
       body {
         padding: 14px;
@@ -219,9 +232,9 @@
 
   <h1>Foam Impact Design Calculator</h1>
   <div class="subtitle">
-    Compare different foam materials and impact conditions. Enter values row-by-row, then hit <b>Compute All</b>.
-    Uses an iterative method (U = mgh or ½mv², σ<sub>p</sub> = F/A, σ/E<sub>s</sub>, W/E<sub>s</sub>, etc.).
-    You can edit the internal foam models later to match your charts.
+    Enter multiple cases row-by-row, then click <b>Compute All</b>.
+    The yellow columns on the right are your key results:
+    optimum foam thickness and optimum foam density ratio.
   </div>
 
   <div class="card">
@@ -231,7 +244,7 @@
       <button id="compute-btn"><span class="icon">⟳</span>Compute All</button>
       <button id="clear-btn" class="secondary"><span class="icon">✕</span>Clear All</button>
       <div class="hint">
-        Inputs: use either <b>h</b> or <b>v</b> (if both given, v is used). E<sub>s</sub> in MPa.
+        Use either <b>h</b> or <b>v</b> (if both given, v is used). E<sub>s</sub> in MPa.
       </div>
     </div>
 
@@ -240,10 +253,11 @@
         <thead>
           <tr>
             <th rowspan="2">Case</th>
-            <th colspan="7" class="group-label">INPUTS</th>
+            <th colspan="8" class="group-label">INPUTS</th>
             <th colspan="10" class="group-label">OUTPUTS</th>
           </tr>
           <tr>
+            <!-- Inputs -->
             <th>m (kg)</th>
             <th>A (m²)</th>
             <th>h (m)</th>
@@ -251,18 +265,20 @@
             <th>a<sub>max</sub> (g)</th>
             <th>E<sub>s</sub> (MPa)</th>
             <th>Foam Type</th>
-
             <th>t init (m)</th>
+
+            <!-- Outputs (intermediates first) -->
             <th>v (m/s)</th>
             <th>U (J)</th>
             <th>F<sub>max</sub> (N)</th>
             <th>σ<sub>p</sub> (Pa)</th>
             <th>σ/E<sub>s</sub></th>
-            <th>t opt (m)</th>
             <th>ε̇ (1/s)</th>
             <th>W/E<sub>s</sub></th>
             <th>W (J/m³)</th>
-            <th>ρ*/ρ<sub>s</sub></th>
+            <!-- Key results LAST + highlighted -->
+            <th class="highlight">t opt (m)</th>
+            <th class="highlight">ρ*/ρ<sub>s</sub></th>
           </tr>
         </thead>
         <tbody id="table-body">
@@ -274,19 +290,17 @@
   </div>
 
   <script>
-    // -----------------------------
-    // CONFIGURABLE FOAM MODELS
-    // -----------------------------
-
     const G_DEFAULT = 9.81;
 
+    // -----------------------------
+    // FOAM MODELS (edit with your data)
+    // -----------------------------
     function getWOverE(sigmaNorm, strainRate, foamType = "flexible_polyurethane") {
-      // USER: Replace this with your own W/E_s vs sigma_norm, strain-rate data.
+      // Replace with your W/E_s vs sigma/E_s vs strain-rate data if needed.
       if (sigmaNorm <= 0 || strainRate <= 0 || !isFinite(sigmaNorm) || !isFinite(strainRate)) {
         throw new Error("Invalid sigma/E_s or strain-rate.");
       }
 
-      // Placeholder calibrated to roughly match example behavior.
       const sigmaRef = 1e-4;
       const erateRef = 30.0;
       const WoverEref = 6.7e-5;
@@ -300,7 +314,7 @@
     }
 
     function getOptDensityRatio(WoverE, foamType = "flexible_polyurethane") {
-      // USER: Replace with mapping from your optimum density chart.
+      // Replace with mapping from your optimum density chart if you have it.
       if (WoverE <= 0 || !isFinite(WoverE)) {
         throw new Error("Invalid W/E_s.");
       }
@@ -312,7 +326,6 @@
     // -----------------------------
     // CORE CALCULATION
     // -----------------------------
-
     function solveThicknessIterative(params) {
       const {
         m,
@@ -400,9 +413,8 @@
     }
 
     // -----------------------------
-    // TABLE UI HANDLING
+    // TABLE UI
     // -----------------------------
-
     const tbody = document.getElementById("table-body");
     const statusMsg = document.getElementById("status-msg");
     const addRowBtn = document.getElementById("add-row-btn");
@@ -415,11 +427,7 @@
 
       const mkInputCell = (key, placeholder = "", align = "right") => {
         const td = document.createElement("td");
-        if (key === "name") {
-          td.style.textAlign = "left";
-        } else {
-          td.style.textAlign = align;
-        }
+        td.style.textAlign = (key === "name") ? "left" : align;
         const input = document.createElement("input");
         input.type = "text";
         input.dataset.key = key;
@@ -431,9 +439,11 @@
         return td;
       };
 
-      const mkOutputCell = (key, dim = false) => {
+      const mkOutputCell = (key, dim = false, highlight = false) => {
         const td = document.createElement("td");
-        td.className = "output" + (dim ? " dim" : "");
+        td.classList.add("output");
+        if (dim) td.classList.add("dim");
+        if (highlight) td.classList.add("highlight");
         td.dataset.outKey = key;
         td.textContent = "";
         return td;
@@ -450,17 +460,18 @@
       tr.appendChild(mkInputCell("foam_type", "PU / etc"));
       tr.appendChild(mkInputCell("t_init_m", "0.05"));
 
-      // Outputs
-      tr.appendChild(mkOutputCell("v_mps"));
+      // Outputs (intermediates)
+      tr.appendChild(mkOutputCell("v_mps", false));
       tr.appendChild(mkOutputCell("U_J", true));
       tr.appendChild(mkOutputCell("Fmax_N", true));
       tr.appendChild(mkOutputCell("sigmaP_Pa", true));
       tr.appendChild(mkOutputCell("sigmaNorm", true));
-      tr.appendChild(mkOutputCell("t_opt_m"));
       tr.appendChild(mkOutputCell("strainRate_1ps", true));
       tr.appendChild(mkOutputCell("WoverE", true));
       tr.appendChild(mkOutputCell("W_Jpm3", true));
-      tr.appendChild(mkOutputCell("rhoRatio"));
+      // Key results LAST + highlighted
+      tr.appendChild(mkOutputCell("t_opt_m", false, true));
+      tr.appendChild(mkOutputCell("rhoRatio", false, true));
 
       tbody.appendChild(tr);
     }
@@ -515,10 +526,10 @@
       set("Fmax_N", outputs.Fmax_N, 3);
       set("sigmaP_Pa", outputs.sigmaP_Pa, 2);
       set("sigmaNorm", outputs.sigmaNorm, 6);
-      set("t_opt_m", outputs.t_opt_m, 4);
       set("strainRate_1ps", outputs.strainRate_1ps, 2);
       set("WoverE", outputs.WoverE, 6);
       set("W_Jpm3", outputs.W_Jpm3, 1);
+      set("t_opt_m", outputs.t_opt_m, 4);
       set("rhoRatio", outputs.rhoRatio, 4);
     }
 
@@ -535,6 +546,10 @@
       const cells = tr.querySelectorAll("td.output");
       cells.forEach(td => {
         td.classList.remove("error");
+        // keep highlight class if present
+        if (!td.classList.contains("highlight")) {
+          td.classList.remove("dim");
+        }
         td.textContent = "";
       });
       tr.removeAttribute("title");
@@ -545,7 +560,7 @@
       let errCount = 0;
 
       const rows = tbody.querySelectorAll("tr");
-      rows.forEach((tr, idx) => {
+      rows.forEach((tr) => {
         clearOutputs(tr);
         try {
           const p = parseRow(tr);
@@ -578,7 +593,7 @@
       } else if (errCount === 0) {
         statusMsg.innerHTML = `<strong>${okCount}</strong> case(s) computed successfully.`;
       } else {
-        statusMsg.innerHTML = `<strong>${okCount}</strong> case(s) ok, <strong>${errCount}</strong> with input/model issues (hover "err" cells).`;
+        statusMsg.innerHTML = `<strong>${okCount}</strong> case(s) ok, <strong>${errCount}</strong> with input/model issues (hover “err” cells).`;
       }
     }
 
@@ -594,16 +609,14 @@
         m_kg: 0.5,
         A_m2: 0.01,
         h_m: 1.0,
-        v_mps: "",
         a_max_g: 10,
         Es_MPa: 50,
         foam_type: "flexible_polyurethane",
         t_init_m: 0.05
       });
-      statusMsg.textContent = "Loaded Example 1 inputs. Now click Compute All.";
+      statusMsg.textContent = "Loaded Example 1 inputs. Click Compute All to solve.";
     }
 
-    // Hook up buttons
     addRowBtn.addEventListener("click", () => {
       createRow({});
       statusMsg.textContent = "New row added.";
@@ -619,3 +632,4 @@
   </script>
 </body>
 </html>
+
